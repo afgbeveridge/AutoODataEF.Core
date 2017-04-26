@@ -1,0 +1,164 @@
+﻿<#@ template debug="true" hostspecific="true" language="C#" #>
+<#@ output extension=".cs" #>
+<#@ include file="Common.ttinclude" #>
+
+using System;
+using System.Linq;
+using System.Linq.Expressions;
+using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
+using System.Reflection;
+using System.Dynamic;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OData.Routing;
+using System.Collections.Generic;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.OData;
+using Microsoft.AspNetCore.OData.Builder;
+using Microsoft.AspNetCore.OData.Extensions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.OData.Edm;
+using API.Generation.Support.Repository;
+using API.Generation.Support.Mvc;
+using API.Generation.Support.Proxies;
+<# includeNamespaces.ForEach(ns => { #>
+using <#= ns #>;
+<# }); #>
+
+namespace <#= baseNamespace #> {
+
+#region Proxies
+
+	<#
+				model.Controllers.ToList().ForEach(c => { 
+					var type = c.Properties.EntityType.ToString();
+			#>
+			public class <#= c.ResourceCollectionName #>Proxy : Proxy<<#= contextInterface #>, <#= type #>>  {
+				public <#= c.ResourceCollectionName #>Proxy(IInterventionProxy<<#= contextInterface #>, <#= type #>> proxy = null) : base(proxy) { 
+				}
+
+				public override <#= type #> PreCreate(<#= contextInterface #> ctx, <#= type #> entity) { 
+					entity.<#= c.KeyName #> = default(<#= c.ResourceIdType #>);
+				<#
+					c.Directives.Where(d => d.NullifyOnCreate).ToList().ForEach(d => { 
+					var name = !d.Type.IsValueType ? "null" : "default(" + d.Type.ToString() + ")";
+				#>
+					entity.<#= d.Name #> = <#= name #>;
+				<#
+				});
+				#>
+				return base.PreCreate(ctx, entity); 	
+				}
+
+				
+
+			}
+			<#
+				});
+			#>
+
+#endregion
+
+#region Startup support
+
+     public static class ODataEfApiGeneratorExtensions {
+
+        public static void AddODataEFGenerator(this IServiceCollection services) {
+            services.AddOData();
+            services.Add(ServiceDescriptor.Scoped(typeof(IProxy<,>), typeof(Proxy<,>)));
+			<#
+				model.Controllers.ToList().ForEach(c => { 
+					var type = c.Properties.EntityType.ToString();
+			#>
+			services.AddScoped<IBaseRepository<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType.ToString() #>>, <#= c.ResourceCollectionName #>Repository>();
+			services.AddScoped<IProxy<<#= contextInterface #>, <#= type #>>, <#= c.ResourceCollectionName #>Proxy>();
+			<#
+				});
+			#>
+        }
+
+        public static void UseODataEFGenerator(this IApplicationBuilder app) {
+            var provider = app.ApplicationServices.GetRequiredService<IAssemblyProvider>();
+            app.UseMvc(builder => builder.MapODataRoute("<#= routePrefix #>", GetEdmModel(provider)));
+        }
+
+        private static IEdmModel GetEdmModel(IAssemblyProvider assemblyProvider) {
+            var builder = new ODataConventionModelBuilder(assemblyProvider);
+			<#
+				model.Controllers.ToList().ForEach(c => { 
+					var type = c.Properties.EntityType.ToString();
+			#>
+			builder.EntitySet<<#= type #>>("<#= c.ResourceCollectionName #>");
+			builder.EntityType<<#= type #>>().HasKey(x => x.<#= c.KeyName #>);
+			<#
+				});
+			#>
+           
+            return builder.GetEdmModel();
+        }
+    }
+
+#endregion
+
+
+
+	<#
+				model.Controllers.ToList().ForEach(c => { 
+					var type = c.Properties.EntityType.ToString();
+			#>
+	#region <#= c.ResourceCollectionName #> repository
+	public partial class <#= c.ResourceCollectionName #>Repository : BaseRepository<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType #>>, IBaseRepository<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType #>> {
+
+        public <#= c.ResourceCollectionName #>Repository(<#= contextInterface #> ctx, IProxy<<#= contextInterface #>, <#= type #>> proxy = null) : base(ctx, proxy) {
+        }
+
+		protected override async Task<<#= type #>> GetAsync(IQueryable<<#= type #>> query, <#= c.ResourceIdType #> key) { 
+			return await query.FirstOrDefaultAsync(obj => obj.<#= c.KeyName #> == key);
+		}
+
+        protected override DbSet<<#= type #>> Set { get { return Context.<#= c.Properties.Name #>; } }
+
+        public override <#= c.ResourceIdType #> GetKeyFromEntity(<#= type #> e) {
+            return e.<#= c.KeyName #>;
+        }
+
+    }
+	#endregion
+	<#
+				});
+			#>
+
+<#
+				model.Controllers.ToList().ForEach(c => { 
+					var type = c.Properties.EntityType.ToString();
+			#>
+	#region <#= c.ResourceCollectionName #> controller
+
+			[EnableQuery]
+    [ODataRoute("<#= c.ResourceCollectionName #>")]
+    public class <#= c.ResourceCollectionName #>Controller : BaseController<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType #>, IBaseRepository<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType #>>> {
+
+
+        public <#= c.ResourceCollectionName #>Controller(IBaseRepository<<#= contextInterface #>, <#= type #>, <#= c.ResourceIdType #>> repo) : base(repo) {
+        }
+
+		<#
+			c.ExposedProperties.ToList().ForEach(prop => { 
+				var includes = prop.IsNavigationProperty ? ", \"" + prop.Name + "\"" : string.Empty;
+		#>
+		[HttpGet("({key})/<#= prop.Name #>")]
+        public async Task<IActionResult> Get<#= prop.Name #>(<#= c.ResourceIdType #> key) {
+            var entity = await Repository.FindAsync(key<#= includes #>);
+            return entity == null ? (IActionResult) NotFound() : new ObjectResult(entity.<#= prop.Name #>);
+        }
+		<#
+		});
+		#>
+
+
+    }
+	#endregion
+	<#
+				});
+			#>
+}
