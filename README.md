@@ -21,16 +21,20 @@ The OData MVC controllers were built using a T4 template and by auto examining t
 Using Postman, or Chrome, you can then try the OData API:
 
 http://localhost:60241/odata/Suppliers(1)/ProductsSupplied
+
 POST http://localhost:60241/odata/Clients, with a body of:
 {
 "Name": "Agatha Christie",
 "Orders": []
 }
+
 The headers should include a location in the response:
 Location http://localhost:60241/odata/Clients(21)
 
 http://localhost:60241/odata/Clients(2)
+
 http://localhost:60241/odata/Clients?$top=5
+
 http://localhost:60241/odata/Clients?$top=5&$skip=5
 
 ## Project specific use
@@ -76,11 +80,11 @@ Now:
 * Edit appsettings.json to modify the Default connection string to whatever is applicable to your installation
 * Change the lines:
 ```
-			services.AddScoped<ICompanyContext, CompanyContext>(_ => {
+	services.AddScoped<ICompanyContext, CompanyContext>(_ => {
                 var builder = new DbContextOptionsBuilder<CompanyContext>();
                 builder.UseSqlServer(Configuration["ConnectionStrings:Default"]);
                 return new CompanyContext(builder.Options);
-            });
+         });
 ```
 to use IOrgContext and OrgContext (as per our initial assumptions).
 
@@ -100,17 +104,17 @@ Proxies are injected into repositories to enable a crude form of AOP. Proxies ar
 An example one from the base installation is:
 
 ```
-		public class ClientsProxy : Proxy<ICompanyContext, EF.Example.Customer>  {
+public class ClientsProxy : Proxy<ICompanyContext, EF.Example.Customer>  {
 		
-				public ClientsProxy(IInterventionProxy<ICompanyContext, EF.Example.Customer> proxy = null) : base(proxy) { 
-				}
+	public ClientsProxy(IInterventionProxy<ICompanyContext, EF.Example.Customer> proxy = null) : base(proxy) { 
+	}
 
-				public override EF.Example.Customer PreCreate(ICompanyContext ctx, EF.Example.Customer entity) { 
-					entity.CustomerId = default(System.Int32);
-					entity.Orders = null;
-					return base.PreCreate(ctx, entity); 	
-				}
-		}
+	public override EF.Example.Customer PreCreate(ICompanyContext ctx, EF.Example.Customer entity) { 
+		entity.CustomerId = default(System.Int32);
+		entity.Orders = null;
+		return base.PreCreate(ctx, entity); 	
+	}
+}
 ```
 The purpose of this implementation is to ensure the entity being created does not have extraneous details; so, the PK Id should be zero, and the 
 Orders property is nullified as the definition of Orders in Customer is decorated with the ApiNullifyOnCreate attribute.
